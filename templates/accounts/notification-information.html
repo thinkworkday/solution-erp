@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block page-title %}Notification Information{% endblock%}
+{% block content %}
+<style>
+    
+</style>
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-sm-6">
+            <div class="page-title-box">
+                <h4>Notification Information</h4>
+                <ol class="breadcrumb m-0">
+                    <li class="breadcrumb-item"><a class="text-primary" href="{% url 'notification_information' %}"><b>Notification Information</b></a></li>
+                    <li class="breadcrumb-item"><a href="javascript: void(0);">All Notification Information</a></li>
+                </ol>
+            </div>
+        </div>
+    </div>
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <ul class="message-list">
+                        {% for noti in notifications %}
+                        <li class="unread">
+                            <div class="col-mail col-mail-1">
+                                <div class="checkbox-wrapper-mail">
+                                    <input type="checkbox" id="{{noti.id}}">
+                                    <label for="{{noti.id}}" class="toggle"></label>
+                                </div>
+                                <a href="#" class="title">{{noti.actor}}</a>
+                                <span class="star-toggle far fa-star"></span>
+                            </div>
+                            <div class="col-mail col-mail-2">
+                                <a href="#" class="subject">
+                                    {% if noti.unread %}
+                                    <span class="bg-danger badge me-2">Unread</span>
+                                    {% else %}
+                                    <span class="bg-primary badge me-2">Read</span>
+                                    {% endif %}
+                                    <span class="teaser">
+                                        {{noti.description}}
+                                    </span>
+                                </a>
+                                <div class="date">{{noti.timestamp|date:"H:i d M"}}</div>
+                            </div>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                
+            </div>
+        </div>
+        
+        
+    </div>
+</div>
+{% endblock%}
+{% block scripts %}
+{% endblock%}

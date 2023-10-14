@@ -1,0 +1,387 @@
+{% load static %}
+{% load funky_sheets_tags %}
+
+<link href="{% static 'css/handsontable.full.min.css' %}" rel="stylesheet">
+
+<form id="form_hot" method="post" action="" onsubmit="return constructFormset();">
+
+  {% csrf_token %}
+  {{ formset.management_form }}
+
+  {% if formset.errors %}{% endif %}
+
+  {% include errors_template %}
+
+  <div id="table_hot"></div>
+
+  <p>
+    <button type="submit" class="btn btn-primary" id="btn-submit">{{ button_text }}</button>
+  </p>
+
+</form>
+
+<script src="{% static 'js/jquery-3.3.1.min.js' %}"></script>
+<script src="{% static 'js/handsontable.full.min.js' %}"></script>
+
+<script type="text/javascript">
+
+  /* 1. Construct initial data for table from the formset */
+
+  var colHeaders = new Array();
+  var fieldTypes = new Array();
+  var primaryKeys = new Array();
+  var data  = new Array();
+
+  // Variables supporting "Django Select widget" / "Handsontable dropdown" logic
+  var temp = [];
+
+  // Iterate through the forms of the formset
+  {% for form in formset %}
+
+    var row  = new Array();
+
+    // Iterate through the fields of the form
+    {% for field in form %}
+
+      /* CheckboxSelectMultiple widget support for ManyToManyField */
+
+      // TODO: Change to switch & function as in constructFormField()?
+      {% if field|widget_type == "CheckboxSelectMultiple" %}
+
+        {% for choice in field.field.choices %}
+          // Only when iterating through the first form in formset
+          {% if forloop.parentloop.parentloop.counter == 1 %}
+            colHeaders.push("{{ choice.1 }}"); // Add label to the colHeaders
+            // Extra values needed for construction of m2m checkboxes in constructFormField()
+            fieldTypes.push([ // Add field type to the fieldTypes
+              "m2m {{ field.field.widget.input_type }}",
+              "{{ field.label }}",
+              "{{ forloop.counter0 }}",
+              "{{ choice.0 }}"
+            ]);
+          {% endif %}
+
+          // field.value is a list of 'ids' of related objects in m2m field
+          // choice.0 is an 'id' of single related object
+          {% if choice.0 in field.value|int_list %}
+            row.push("{{ checkbox_checked }}");
+          {% else %}
+            row.push("{{ checkbox_unchecked }}");
+          {% endif %}
+
+        {% endfor %}
+
+      /* Select widget */
+
+      // TODO: Add comments
+      {% elif field|widget_type == "Select" %}
+
+        var choiceValues = [];
+        var choiceStrings = [];
+
+        var cellWidgetChoiceValues = [];
+        var cellWidgetChoiceStrings = [];
+
+        {% if forloop.parentloop.counter == 1 %}
+          colHeaders.push("{{ field.label }}");
+
+          if (temp.length === 0) {
+            temp.push("{{ field.field.widget.input_type }}");
+          }
+
+          {% for choice in field.field.choices %}
+            cellWidgetChoiceValues.push("{{ choice.0 }}");
+            cellWidgetChoiceStrings.push("{{ choice.1 }}");
+          {% endfor %}
+
+          temp.push([cellWidgetChoiceValues, cellWidgetChoiceStrings]);
+          fieldTypes.push(temp);
+
+        {% endif %}
+
+        {% for choice in field.field.choices %}
+          choiceValues.push("{{ choice.0 }}");
+          choiceStrings.push("{{ choice.1 }}");
+        {% endfor %}
+
+        {% if field.value %}
+          // Get index of selected choice in choiceValues
+          var index = choiceValues.indexOf("{{ field.value }}");
+          // Push string at index in choiceStrings to the row
+          row.push(choiceStrings[index]);
+        {% else %}
+          row.push("");
+        {% endif %}
+
+      /* Other widgets: TextInput, NumberInput, URLInput, DateInput, CheckboxInput */
+
+      {% else %}
+
+        if ("{{ field.label }}" != "Id" && "{{ field.label }}" != "Delete"){
+
+          // Only when iterating through the first form in formset
+          {% if forloop.parentloop.counter == 1 %}
+            colHeaders.push("{{ field.label }}"); // Add label to the colHeaders
+            fieldTypes.push([ // Add field type to the fieldTypes
+              "{{ field.field.widget.input_type }}"
+            ]);
+          {% endif %}
+
+          // Add value to the row
+
+          // Input with value
+          {% if field.value %}
+
+            // URLInput
+            {% if field.field.widget.input_type == "url" %}
+              row.push("<a href={{ field.value }} target='_blank'>{{ field.value }}</a>");
+            // CheckboxInput
+            {% elif field.field.widget.input_type == "checkbox" %}
+              row.push("{{ checkbox_checked }}");
+            // Other widgets
+            {% else %}
+              row.push("{{ field.value }}");
+            {% endif %}
+
+          // Inputs without value
+          {% else %}
+
+            // CheckboxInput
+            {% if field.field.widget.input_type == "checkbox" %}
+              row.push("{{ checkbox_unchecked }}");
+            // Other widgets
+            {% else %}
+              row.push("");
+            {% endif %}
+
+          {% endif %}
+
+        } else if ("{{ field.label }}" == "Id") {
+          // TODO: Why?
+          // Add value to the primaryKeys
+          primaryKeys.push("{{ field.value }}");
+        };
+
+      {% endif %}
+
+    {% endfor %}
+
+    // Add row to the data
+    data.push(row);
+
+    // Debug logs
+    // console.log(row);
+
+  {% endfor %}
+
+  /* 2. Construct & fill in formset fields */
+
+  var total_non_empty_rows = 0;
+
+  function constructFormset() {
+    // Get data from instantiated Handsontable
+    var tableData = hot.getData();
+
+    // Iterate through tableData
+    // Construct form from each row (i=row number)
+    for(var i = 0; i < tableData.length; i++) {
+      var rowTemp = tableData[i];
+      var row = rowTemp.map(setBooleansArray);
+      var pk = "";
+
+      // Get primary key
+      if (i < primaryKeys.length){
+        pk = primaryKeys[i]
+      }
+
+      // Add primary key value or empty string
+      {% if action == "update" %}
+        var input_id = "{{ formset.prefix }}-" + i + "-id";
+        $("#form_hot").append(
+          '<input id="id_' + input_id
+          + '" name="' + input_id
+          + '" type="hidden" value="' + pk +'" />'
+        );
+      {% endif %}
+
+      // Set empty rows for deletion
+      if (row.isNull()){
+        var input_id = "{{formset.prefix}}-" + i + "-DELETE";
+        $('#form_hot').append(
+          '<input id="id_' + input_id
+          + '" name="' + input_id
+          + '" type="hidden" value="on" />'
+        );
+      }
+      // Add fields to the form of a formset for each element of a row in tableData
+      // (i=row number, j=column number)
+      else {
+        for(var j = 0; j < row.length; j++) {
+          constructFormField(i, j, fieldTypes[j], row);
+        }
+        total_non_empty_rows += 1;
+      }
+    }
+    // Set total number of forms
+    var input_id = "id_{{ formset.prefix }}-TOTAL_FORMS";
+    $('#' + input_id).val(total_non_empty_rows);
+
+    return true;
+  }
+
+  /* 3. Helper functions */
+
+  // 3.1. Check if an array contains only empty strings
+  Array.prototype.isNull = function (){
+    return this.join().replace(/,/g,"").length === 0;
+  };
+
+  // 3.2. Construct form field (i=row number, j=column number)
+  function constructFormField(i, j, fieldType, row) {
+    var partialName = colHeaders[j].toLowerCase().replace(/ /g,"_");
+    var fieldName = "{{ formset.prefix }}-" + i + "-" + partialName;
+    var fieldString = "";
+
+    var value = row[j];
+
+    if (value == null) {
+      value = "";
+    }
+
+    switch(fieldType[0]) {
+      case "select": // select field
+        // TODO: Add comments
+        // Get index of selected choice in choiceStrings
+        var index = fieldType[j][1].indexOf(value);
+        // Get value at index in choiceValues
+        value = fieldType[j][0][index];
+
+        fieldString = "<select id='id_" + fieldName
+                      + "' name='" + fieldName
+                      + "' style='visibility: hidden;'>"
+                      + "<option value='" + value +"' selected></option>"
+                      + "</select>";
+        break;
+      case "m2m checkbox": // m2m checkbox field
+        if (value == true) {
+          var fieldLabel, count = "";
+          var tablePrefix = "{{ formset.prefix }}-" + i + "-";
+          var fieldLabel = fieldType[1].toLowerCase().replace(/ /g,"_");
+          var count = fieldType[2];
+          value = fieldType[3];
+
+          fieldString = "<input id=id_'" + tablePrefix + fieldLabel + "_" + count
+                        + "' name='" + tablePrefix + fieldLabel
+                        + "' type='hidden' value='" + value + "' />";
+        }
+        break;
+      case "url": // url field
+        if (value.indexOf("href=") != -1) {
+          value = $("<div>").append(value).find("a").attr("href");
+        }
+
+        fieldString = "<input id=id_'" + fieldName
+                      + "' name='" + fieldName
+                      + "' type='hidden' value='" + value + "' />";
+
+        break;
+      default: // text, number, checkbox fields
+        fieldString = "<input id=id_'" + fieldName
+                      + "' name='" + fieldName
+                      + "' type='hidden' value='" + value + "' />";
+    }
+
+    return $('#form_hot').append(fieldString);
+  }
+
+  // 3.3. Custom Handsontable HtmlRendered, which removes null from empty url inputs
+  function cleanHtmlRenderer(instance, td, row, col, prop, value, cellProperties){
+    Handsontable.renderers.HtmlRenderer.apply(this, arguments);
+    if (td.innerHTML === "null") {
+      td.innerHTML = "";
+    }
+  }
+  Handsontable.renderers.registerRenderer("cleanHtmlRenderer", cleanHtmlRenderer);
+
+  // 3.4. Construct Handsontable columns based on fieldTypes
+  var cellWidget = function(item, index) {
+    if (item[0] == "checkbox" || item[0] == "m2m checkbox") {
+      return {
+        type: "checkbox",
+        checkedTemplate: "{{ checkbox_checked }}",
+        uncheckedTemplate: "{{ checkbox_unchecked }}",
+      };
+    } else if (item[0] == "select") {
+      return {
+        type: "dropdown",
+        source: item[index][1]
+      };
+    } else if (item[0] == "date") {
+      return {
+        type: "date",
+        dateFormat: "{{ date_format }}"
+      };
+    } else if (item[0] == "url") {
+      return {
+        renderer: "cleanHtmlRenderer"
+      };
+    } else {
+      return {};
+    }
+  }
+
+  // 3.5. Change string 'true' or 'false' to js booleans
+
+  // On paste from clipboard
+  var setBooleansArray = function(item, index) {
+    if (item == "{{ checkbox_checked }}") {
+      return true;
+    } else if (item == "{{ checkbox_unchecked }}") {
+      return false;
+    } else {
+      return item;
+    }
+  }
+
+  // On getting hotSettings passed in from HotView
+  var setBooleansObject = function(obj) {
+    for (var key in obj) {
+      if (obj[key] == "true") {
+        obj[key] = true;
+      } else if (obj[key] == "false") {
+        obj[key] = false;
+      }
+    }
+  }
+
+  /* 4. Construct Handsontable */
+
+  var container = document.getElementById("table_hot");
+  // Construct columns & cell types based on fieldTypes
+  var columns = fieldTypes.map(cellWidget);
+
+  // Debug logs
+  // console.log(colHeaders);
+  // console.log(fieldTypes);
+  // console.log("{{ date_format }}");
+  // console.log(columns);
+
+  // Default hotSettings
+  var hotSettings = {
+    data: data,
+    colHeaders: colHeaders,
+    columns: columns
+  };
+
+  // Get hotSettings passed in from HotView
+  var extraHotSettings = {{ hot_settings|safe }};
+  setBooleansObject(extraHotSettings);
+
+  // Extend hotSettings with extraHotSettings
+  var hotSettings = $.extend(hotSettings, extraHotSettings);
+
+  var hot = new Handsontable(container, hotSettings);
+
+  $("#HandsontableCopyPaste").css("visibility", "hidden");
+
+</script>
