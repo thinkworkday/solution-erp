@@ -1,5 +1,3 @@
-*** Our APP ======= ERP Solutions ***
-
 # Technologies used for this project
 
 We used django 3.2.8, python 3.8.5, bootstrap 5.0.1, jquery 3.5.1 in our app.
